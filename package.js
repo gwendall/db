@@ -32,7 +32,9 @@ Package.onUse(function (api) {
   api.export('Ground');
   api.export('GroundDB');
 
-  api.use(['tracker'], 'client');
+  api.use([
+    'tracker'
+  ], 'client');
 
 
   //api.use([], 'server');

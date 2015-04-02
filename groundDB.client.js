@@ -20,7 +20,6 @@ Regz. RaiX
 */
 
 ///////////////////////////////// TEST BED /////////////////////////////////////
-
 try {
   var test = Package['ground:test'].GroundTest;
   console.warn('## IN TEST MODE');
@@ -249,6 +248,7 @@ _groundDbConstructor = function(collection, options) {
 
 // Global helper for applying grounddb on a collection
 Ground.Collection = function(name, options) {
+
   var self;
 
   // Inheritance Meteor Collection can be set by options.collection
@@ -429,6 +429,45 @@ var _removeLocalOnly = function() {
   });
 };
 
+var _eachAsync = function(array, iterator, callback) {
+  var counter = 0;
+  var timeout = 0;
+  var process = function() {
+    iterator.apply && iterator.apply(this, [array[counter], counter]);
+    counter += 1;
+    if (counter < array.length) {
+      setTimeout(process, timeout);
+    } else {
+      callback && callback.apply && callback.apply(this, []);
+    }
+  };
+  setTimeout(process, timeout);
+}
+
+var _bulkInsert = function(docs) {
+
+  var self = this;
+  var name = self._collection.name;
+
+  Session.set("groundRestoring." + name, 0);
+  _eachAsync(docs, function(doc, i) {
+    if (!doc || !doc._id) return;
+    var exists = !!self._collection.findOne({ _id: doc._id });
+    if (exists) return;
+    if (!self.offlineDatabase) self._localOnly[doc._id] = true;
+    if (doc === _.last(docs)) {
+      self._collection.insert(doc);
+    } else {
+      self._collection._docs._map[doc._id] = doc;
+    }
+    Session.set("groundRestoring." + name, (i * 100 / docs.length).toFixed(0));
+  }, function() {
+    self._databaseLoaded = true;
+    Session.set("groundRestoring." + name, null);
+  });
+
+}
+
 // Bulk Load database from local to memory
 var _loadDatabase = function() {
   var self = this;
@@ -440,6 +479,8 @@ var _loadDatabase = function() {
 
   // Load object from localstorage
   self.storage.getItem('data', function(err, data) {
+
+
     if (err) {
       // XXX:
     } else {
@@ -450,7 +491,13 @@ var _loadDatabase = function() {
       // Maxify the data
       var docs = data && MiniMaxDB.maxify(data) || {};
 
-      // Initialize client documents
+      // Initialize client documents (as an array)
+      var _docs = _.map(_checkDocs.call(self, docs || {} ), function(val) { return val; });
+
+      _bulkInsert.apply(self, [_docs]);
+
+      /*/
+
       _groundUtil.each(_checkDocs.call(self, docs || {} ), function(doc) {
         // Test if document allready exists, this is a rare case but accounts
         // sometimes adds data to the users database, eg. if "users" are grounded
@@ -466,9 +513,10 @@ var _loadDatabase = function() {
         }
       });
 
-
       // Setting database loaded, this allows minimongo to be saved into local
       self._databaseLoaded = true;
+
+      //*/
 
     }
 
@@ -478,7 +526,9 @@ var _loadDatabase = function() {
 // Bulk Save database from memory to local, meant to be as slim, fast and
 // realiable as possible
 var _saveDatabase = function() {
+
   var self = this;
+
   // If data loaded from localstorage then its ok to save - otherwise we
   // would override with less data
   if (self._databaseLoaded && _isReloading === false) {
@@ -853,6 +903,7 @@ var syncDatabaseTimeout = new OneTimeout(150);
 // have virtual method calls it would complicate things
 var _syncDatabase = function() {
   var self = this;
+
   // We set a small delay in case of more updates within the wait
   syncDatabaseTimeout(function() {
 //    if (self && (self.offlineDatabase === true || !Meteor.status().connected)) {
